@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Судо терминал</title>
+  <style>
+    body {
+      margin: 0;
+      background-color: #000;
+      color: #0f0;
+      font-family: monospace;
+      overflow: hidden;
+    }
+
+    #syncing {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      color: #90ee90;
+    }
+
+    #sync-bar {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: #90ee90;
+      white-space: nowrap;
+    }
+
+    #console {
+      position: absolute;
+      top: 50px;
+      bottom: 40px;
+      left: 20px;
+      right: 20px;
+      overflow-y: auto;
+      padding: 10px;
+      box-sizing: border-box;
+      font-size: 14px;
+    }
+
+    #commandInput {
+      position: absolute;
+      bottom: 10px;
+      left: 20px;
+      width: 40%;
+      background: none;
+      border: none;
+      color: #0f0;
+      font: inherit;
+      outline: none;
+      border-bottom: 1px solid #0f0;
+    }
+
+    .popup, .satellite-popup, .access-popup {
+      position: absolute;
+      top: 20%;
+      left: 50%;
+      transform: translate(-50%, -20%);
+      background-color: #000;
+      border: 2px solid #0f0;
+      padding: 20px;
+      z-index: 10;
+      display: none;
+      text-align: center;
+      cursor: grab;
+      min-width: 250px;
+    }
+
+    .popup .close, .satellite-popup .close, .access-popup .close {
+      position: absolute;
+      top: 5px;
+      right: 10px;
+      color: #0f0;
+      cursor: pointer;
+      font-size: 18px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(10, 1fr);
+      gap: 5px;
+      margin-bottom: 10px;
+      text-align: center;
+    }
+
+    .grid div {
+      border: 1px solid #0f0;
+      padding: 5px;
+    }
+
+    #startBrute, #copyPasswordBtn {
+      background-color: #000;
+      border: 1px solid #0f0;
+      color: #0f0;
+      padding: 5px;
+      cursor: pointer;
+      margin-top: 10px;
+    }
+
+    #startBrute:hover, #copyPasswordBtn:hover {
+      background-color: #0f0;
+      color: #000;
+    }
+
+    .tick {
+      color: #0f0;
+      margin-left: 5px;
+    }
+
+    .glitch {
+      animation: glitch 1s infinite;
+    }
+
+    @keyframes glitch {
+      0% { text-shadow: 2px 2px #ff0000; }
+      20% { text-shadow: -2px -2px #00ff00; }
+      40% { text-shadow: 2px -2px #0000ff; }
+      60% { text-shadow: -2px 2px #ffff00; }
+      80% { text-shadow: 2px 2px #00ffff; }
+      100% { text-shadow: -2px -2px #ff00ff; }
+    }
+
+    @keyframes spinEarth {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    #earthModel {
+      width: 300px;
+      height: 300px;
+      margin: 0 auto;
+      background: radial-gradient(circle at center, #0f0 20%, #000 100%);
+      border-radius: 50%;
+      animation: spinEarth 20s linear infinite;
+      cursor: pointer;
+      transition: transform 0.5s ease;
+    }
+
+    #satelliteControls {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      color: #0f0;
+    }
+
+    #satelliteControls button {
+      margin: 5px;
+      padding: 5px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="syncing">Syncing...</div>
+  <div id="sync-bar">[ ]</div>
+  <div id="console"></div>
+  <input id="commandInput" placeholder="Enter command..." />
+
+  <div class="popup" id="crackerPopup">
+    <span class="close" onclick="crackerPopup.style.display='none'">[x]</span>
+    <h3>Password Cracker</h3>
+    <div class="grid" id="numberRow"></div>
+    <div class="grid" id="letterRow"></div>
+    <button id="startBrute">Start Brute Force Attack</button>
+    <div id="crackerStatus"></div>
+    <button id="copyPasswordBtn" style="display:none">Copy Password</button>
+  </div>
+
+  <div class="satellite-popup" id="satellitePopup">
+    <span class="close" onclick="satellitePopup.style.display='none'">[x]</span>
+    <h3>Tracking...</h3>
+    <div id="earthModel"></div>
+  </div>
+
+  <div class="access-popup" id="accessPopup">
+    <span class="close" onclick="accessPopup.style.display='none'">[x]</span>
+  </div>
+
+  <div id="satelliteControls">
+    <!-- Removed Zoom In and Zoom Out buttons -->
+  </div>
+
+  <script>
+    const input = document.getElementById("commandInput");
+    const consoleDiv = document.getElementById("console");
+    const syncBar = document.getElementById("sync-bar");
+    const crackerPopup = document.getElementById("crackerPopup");
+    const numberRow = document.getElementById("numberRow");
+    const letterRow = document.getElementById("letterRow");
+    const startBrute = document.getElementById("startBrute");
+    const crackerStatus = document.getElementById("crackerStatus");
+    const copyPasswordBtn = document.getElementById("copyPasswordBtn");
+    const satellitePopup = document.getElementById("satellitePopup");
+    const accessPopup = document.getElementById("accessPopup");
+
+    let securePassword = "";
+    let isPasswordGenerated = false;
+    let isLoggedIn = false;
+    let kernelCodeRevealed = 0;
+    let isRoot = false;
+
+    const messages = ["Initializing", "Accessing Core", "Fetching Keys", "Decrypting Logs", "Scanning Ports", "Authenticating", "Syncing Modules"];
+    let msgIndex = 0;
+
+    setInterval(() => {
+      let hashBar = "#".repeat(kernelCodeRevealed % 20);
+      let message = messages[msgIndex % messages.length];
+      syncBar.textContent = `[${hashBar}] ${message}`;
+      msgIndex++;
+    }, 200);
+
+    input.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        const rawCommand = input.value.trim();
+        const command = rawCommand.toLowerCase();
+        input.value = "";
+        logToConsole(rawCommand);
+
+        if (!isPasswordGenerated && command !== "/password cracker") {
+          logToConsole("You must run '/password cracker' and then log in.");
+          return;
+        }
+
+        if (!isLoggedIn && !["/password cracker", "/log in", "/root", "/sudo"].some(c => command.startsWith(c))) {
+          logToConsole("You need to log in first");
+          return;
+        }
+
+        if (command.startsWith("/log in")) {
+          const user = rawCommand.split(" ")[2] || "guest";
+          const key = prompt("Enter key for " + user + ":");
+          if (key === securePassword) {
+            isLoggedIn = true;
+            logToConsole(`Access granted. Welcome ${user}`);
+            revealAllKernelCode();
+          } else {
+            logToConsole("Access denied.");
+          }
+
+        } else if (command === "/password cracker") {
+          openCracker();
+
+        } else if (command === "/import") {
+          logToConsole("Importing data...");
+          simulateProgressBar("Importing data...", 5000, "Data imported");
+
+        } else if (command === "/execute") {
+          logToConsole("Executing system operation...");
+          simulateProgressBar("Executing operation", 5000);
+
+        } else if (command === "/grant access") {
+          logToConsole("Granting access to system...");
+          simulateProgressBar("Granting access to system...", 5000, "Access granted");
+
+        } else if (command.startsWith("/disable")) {
+          const target = rawCommand.slice(9) || "unknown module";
+          logToConsole(`System has disabled: ${target}`);
+
+        } else if (command === "/logs") {
+          simulateLogs();
+
+        } else if (command === "/help") {
+          showHelp();
+
+        } else if (command === "/satellite") {
+          satellitePopup.style.display = "block";
+          logToConsole("Tracking satellite...");
+
+        } else if (command === "/code") {
+          showHackerCode();
+
+        } else if (command === "/sudo" || command === "/root") {
+          isRoot = true;
+          logToConsole("Root access granted. Admin privileges unlocked.");
+          document.body.classList.add('glitch');
+
+        } else {
+          logToConsole("Access Denied");
+        }
+      }
+    });
+
+    function logToConsole(msg) {
+      const line = document.createElement("div");
+      let i = 0;
+      const typingEffect = setInterval(() => {
+        line.textContent += msg[i];
+        i++;
+        if (i >= msg.length) {
+          clearInterval(typingEffect);
+        }
+      }, 100);
+      consoleDiv.appendChild(line);
+      consoleDiv.scrollTop = consoleDiv.scrollHeight;
+    }
+
+    function revealAllKernelCode() {
+      kernelCodeRevealed++;
+      logToConsole("Kernel code revealed. You can now access restricted commands.");
+    }
+
+    function openCracker() {
+      crackerPopup.style.display = "block";
+      numberRow.innerHTML = "";
+      letterRow.innerHTML = "";
+      copyPasswordBtn.style.display = "none";
+
+      for (let i = 1; i <= 10; i++) {
+        const cell = document.createElement("div");
+        cell.textContent = i;
+        numberRow.appendChild(cell);
+      }
+
+      for (let i = 0; i < 10; i++) {
+        const cell = document.createElement("div");
+        cell.textContent = String.fromCharCode(97 + i);
+        letterRow.appendChild(cell);
+      }
+
+      crackerStatus.textContent = "Generating password...";
+      setTimeout(() => {
+        securePassword = generatePassword();
+        isPasswordGenerated = true;
+        crackerStatus.textContent = `Password generated: ${securePassword}`;
+        copyPasswordBtn.style.display = "inline-block";
+        startBrute.disabled = false;
+      }, 2000);
+    }
+
+    function generatePassword() {
+      const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
+      let password = "";
+      for (let i = 0; i < 12; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+      return password;
+    }
+
+    copyPasswordBtn.addEventListener("click", function () {
+      navigator.clipboard.writeText(securePassword)
+        .then(() => {
+          logToConsole("Password copied to clipboard!");
+        })
+        .catch(() => {
+          logToConsole("Failed to copy password.");
+        });
+    });
+
+    function simulateProgressBar(message, duration, successMessage) {
+      const progressBar = document.createElement("div");
+      progressBar.textContent = message;
+      consoleDiv.appendChild(progressBar);
+
+      setTimeout(() => {
+        progressBar.textContent = successMessage;  // Update message to successMessage
+        const tick = document.createElement("span");
+        tick.classList.add("tick");
+        tick.textContent = " ✔";  // Add the tick symbol
+        progressBar.appendChild(tick);
+      }, duration); // After the specified duration (5 seconds), update the message
+
+      setTimeout(() => {
+        consoleDiv.removeChild(progressBar);  // Remove the progress bar after the update
+      }, duration + 1000);  // Wait for an extra second to show the final message
+    }
+
+    function simulateLogs() {
+      const logs = ["System initialized.", "Connection established.", "Data synced."];
+      logs.forEach((log, index) => {
+        setTimeout(() => {
+          logToConsole(log);
+        }, index * 2000);
+      });
+    }
+
+    function showHelp() {
+      logToConsole("Available commands:");
+      logToConsole("/log in [username] - Log into the system");
+      logToConsole("/password cracker - Run the password cracker tool");
+      logToConsole("/satellite - Track the satellite");
+      logToConsole("/grant access - Grant access to system");
+      logToConsole("/execute - Execute a system operation");
+      logToConsole("/import - Import data");
+      logToConsole("/logs - View system logs");
+      logToConsole("/help - Show available commands");
+      logToConsole("/code - Display random hacker code");
+    }
+
+    function showHackerCode() {
+      const hackerCode = [
+        "const hack = require('crypto');",
+        "let password = hack.createHash('sha256').update('12345').digest('hex');",
+        "console.log('Hacking into system...');",
+        "setTimeout(() => {",
+        "  console.log('System accessed!');",
+        "}, 3000);"
+      ];
+      hackerCode.forEach(line => {
+        logToConsole(line);
+      });
+    }
+    function makeDraggable(element) {
+      let offsetX, offsetY, initialX, initialY;
+
+      element.style.position = "absolute"; 
+
+      element.onmousedown = function(e) {
+        e.preventDefault();
+
+        initialX = e.clientX - element.offsetLeft;
+        initialY = e.clientY - element.offsetTop;
+
+        document.onmousemove = function(e) {
+          let newLeft = e.clientX - initialX;
+          let newTop = e.clientY - initialY;
+
+          element.style.left = newLeft + 'px';
+          element.style.top = newTop + 'px';
+        };
+
+        document.onmouseup = function() {
+          document.onmousemove = null;
+          document.onmouseup = null;
+        };
+      };
+    }
+
+    makeDraggable(crackerPopup);
+    makeDraggable(satellitePopup);
+    makeDraggable(accessPopup);
+  </script>
+</body>
+</html>
